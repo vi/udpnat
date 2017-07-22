@@ -1,2 +1,2 @@
 CFLAGS=-Wall -ggdb
-udpnat: udpnat.o
+udpnat: udpnat.o tunudp.c
