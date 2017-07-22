@@ -56,6 +56,10 @@ static uint16_t ip_checksum(void* vdata,size_t length) {
 }
 
 
+static void send_icmp_packet_to_tun(
+            int tundev, char *buf_reply, size_t bufsize,
+            uint8_t type, uint8_t code, const struct ip* orighdr);
+
 int open_tun(const char* devnettun, const char* devname, int extraflags) {
     int tundev = open(devnettun, O_RDWR);
     if (tundev == -1) { perror("open(tun)"); return -1; }
@@ -95,10 +99,12 @@ int receive_udp_packet_from_tun(
     size_t dataoffset = hi->ip_hl * 4 + sizeof *hu;
     
     if (tunudp_debug) {
-        fprintf(stderr, "ip_hl=%d ip_v=%d ip_p=%d ip_len=%d ip_ttl=%d ",
-                hi->ip_hl,
+        fprintf(stderr, "ip_v=%d ip_hl=%d ip_p=%d ip_flags=%c ip_off=%d ip_len=%d ip_ttl=%d ",
                 hi->ip_v,
+                hi->ip_hl,
                 hi->ip_p,
+                "_FD!@#$%"[ntohs(hi->ip_off) >> 13],
+                ntohs(hi->ip_off) & 0x1FFF,
                 ntohs(hi->ip_len),
                 hi->ip_ttl);
         fprintf(stderr, "%s:%d -> ",
@@ -117,8 +123,30 @@ int receive_udp_packet_from_tun(
     }
     
     if (hi->ip_v != 4) { errno=EAGAIN; return -1;}
-    if (hi->ip_p != 17) { errno=EAGAIN; return -1;}
+    if (hi->ip_p != 17) { 
+        // not UDP
+        
+        // 3 - destination unreachable, 2 - protocol unreachable
+        send_icmp_packet_to_tun( tundev, buf+28, bufsize-28,
+                                 3, 2, hi);
+        
+        errno=EAGAIN; 
+        return -1;
+    }
     if (dataoffset > ret) { errno=EAGAIN; return -1;}
+    if (ntohs(hi->ip_off) & 0x2000) {
+        // fragmented; 11 - TTL exceed;  1 - fragmentation time exceed
+        send_icmp_packet_to_tun( tundev, buf+28, bufsize-28,
+                                 11, 1, hi);
+        
+        errno=EAGAIN; 
+        return -1;
+    }
+    if ((ntohs(hi->ip_off) & 0x1FFF) != 0) {
+        // not the first fragment
+        errno=EAGAIN;
+        return -1;
+    }
     
     if (src) {
         memset(src, 0, sizeof(*src));
@@ -175,8 +203,47 @@ int send_udp_packet_to_tun(
     
     memcpy(data_, data, datalen);
     
-    return write(tundev, buf_reply, reqsize);
+    write(tundev, buf_reply, reqsize);
 }
+
+static void send_icmp_packet_to_tun(
+            int tundev, char *buf_reply, size_t bufsize,
+            uint8_t type, uint8_t code, const struct ip* orighdr)
+{
+    size_t reqsize = 20 + 36;
+    if (bufsize < reqsize) { 
+        return;
+    }
+    if (orighdr->ip_ttl == 0) return;
+    
+    struct ip* hi_r = (struct ip*)buf_reply;
+    hi_r->ip_v = 4;
+    hi_r->ip_p = 1;
+    hi_r->ip_hl = 5;
+    hi_r->ip_tos = 0;
+    hi_r->ip_len = htons(36+20);
+    hi_r->ip_id = 0;
+    hi_r->ip_off = htons(0);
+    hi_r->ip_ttl=orighdr->ip_ttl - 1;
+    hi_r->ip_sum = htons(0);
+    hi_r->ip_src = orighdr->ip_dst;
+    hi_r->ip_dst = orighdr->ip_src;
+    hi_r->ip_sum = ip_checksum(hi_r, 20);
+    
+    buf_reply[20] = type;
+    buf_reply[21] = code;
+    buf_reply[22] = 0; // checksum
+    buf_reply[23] = 0; // checksum
+    buf_reply[24] = 0; // unused
+    buf_reply[25] = 0; // unused
+    buf_reply[26] = 0; // unused
+    buf_reply[27] = 0; // unused
+    memcpy(buf_reply+28, orighdr, 20+8);
+    *(uint16_t*)&buf_reply[22] = ip_checksum(buf_reply+20, 36);
+    
+    write(tundev, buf_reply, 20+36);
+}
+
 
 /*
  // 450000218EB940003F|11|F8680|A000000|55555555|CFB8|4444|000DA8A6|414243440A
