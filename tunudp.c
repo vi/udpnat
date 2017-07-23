@@ -92,6 +92,7 @@ int receive_udp_packet_from_tun(
         }
         fprintf(stderr, "\n");
     }
+    if (ret == -1) return -1;
     
     struct ip* hi = (struct ip*)buf;
     struct udphdr *hu = (struct udphdr*)(buf + hi->ip_hl*4);
@@ -122,7 +123,7 @@ int receive_udp_packet_from_tun(
         fprintf(stderr, "\n");
     }
     
-    if (hi->ip_v != 4) { errno=EAGAIN; return -1;}
+    if (hi->ip_v != 4) { errno=EPROTONOSUPPORT; return -1;}
     if (hi->ip_p != 17) { 
         // not UDP
         
@@ -130,21 +131,21 @@ int receive_udp_packet_from_tun(
         send_icmp_packet_to_tun( tundev, buf+28, bufsize-28,
                                  3, 2, hi);
         
-        errno=EAGAIN; 
+        errno=ESOCKTNOSUPPORT; 
         return -1;
     }
-    if (dataoffset > ret) { errno=EAGAIN; return -1;}
+    if (dataoffset > ret) { errno=ENOBUFS; return -1;}
     if (ntohs(hi->ip_off) & 0x2000) {
         // fragmented; 11 - TTL exceed;  1 - fragmentation time exceed
         send_icmp_packet_to_tun( tundev, buf+28, bufsize-28,
                                  11, 1, hi);
         
-        errno=EAGAIN; 
+        errno=EOPNOTSUPP; 
         return -1;
     }
     if ((ntohs(hi->ip_off) & 0x1FFF) != 0) {
         // not the first fragment
-        errno=EAGAIN;
+        errno=EOPNOTSUPP;
         return -1;
     }
     
