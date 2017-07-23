@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -33,7 +34,7 @@ char buf[4096];
 char buf_reply[4096];
 
 #define MAXCONNS 1024
-#define TTL 60
+int TTL = 60;
 #define SCAN_INTERVAL 5
 
 struct connection {
@@ -74,8 +75,8 @@ static int expire_connections() {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc!=3 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-?")) {
-        printf("Usage: udpnat /dev/net/tun ifname\n");
+    if (argc!=4 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-?")) {
+        printf("Usage: udpnat /dev/net/tun ifname expire_seconds\n");
         printf("  If creates a TUN device which does UDP-only IPv4 NAT\n");
         printf("  Mind /proc/sys/net/ipv4/conf/*/rp_filter\n");
         return 1;
@@ -83,6 +84,7 @@ int main(int argc, char* argv[]) {
     
     const char* devnettun = argv[1];
     const char* devname = argv[2];
+    TTL = atoi(argv[3]);
     
     int tundev = open_tun(devnettun, devname, 0);
     

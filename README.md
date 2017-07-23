@@ -24,7 +24,7 @@ gateway@root# iptables -t nat -I POSTROUTING -m mark --mark 44 -j RETURN
 gateway@root# iptables -t nat -I POSTROUTING -m mark --mark 45 -j RETURN
 gateway@root# ip route add default dev udpnat table 44
 gateway@root# ip rule add fwmark 44 table 44
-gateway@udpnat_user$ udpnat /dev/net/tun udpnat
+gateway@udpnat_user$ udpnat /dev/net/tun udpnat 60
 
 host@user$ stun stun.counterpath.net
 Primary: Independent Mapping, Independent Filter, preserves ports, no hairpin
