@@ -203,7 +203,7 @@ int send_udp_packet_to_tun(
     
     memcpy(data_, data, datalen);
     
-    write(tundev, buf_reply, reqsize);
+    return write(tundev, buf_reply, reqsize);
 }
 
 static void send_icmp_packet_to_tun(

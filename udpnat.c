@@ -29,7 +29,28 @@ uint16_t ip_id=1;
 char buf[4096];
 char buf_reply[4096];
 
+#define MAXCONNS 1024
 
+struct connection {
+    uint32_t src_ip;
+    uint16_t src_port;
+    uint16_t ttl;
+};
+
+struct connection connections[MAXCONNS] = {{0,0,0}};
+
+
+static int find_connection(struct sockaddr_in c) {
+    // TODO: index
+    
+    int i;
+    for (i=0; i<MAXCONNS; ++i) {
+        if (connections[i].src_ip  == c.sin_addr.s_addr && connections[i].src_port == c.sin_port) {
+            return i;
+        }
+    }
+    return -1;
+}
 
 int main(int argc, char* argv[]) {
     if (argc!=3 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-?")) {
@@ -62,6 +83,27 @@ int main(int argc, char* argv[]) {
             if (errno == EINTR || errno == EAGAIN) continue;
             return 3;
         }
+        
+        int s = find_connection(src);
+        if (s == -1) {
+            fprintf(stderr, "New connection: %s:%d ->",inet_ntoa(src.sin_addr), ntohs(src.sin_port));
+            fprintf(stderr, "%s:%d. Created socket ", inet_ntoa(dst.sin_addr), ntohs(dst.sin_port));
+            s = socket(AF_INET, SOCK_DGRAM, 0);
+            fprintf(stderr, "%d\n", s);
+            if (s == -1) continue; // FIXME: send ICMP dest unreach
+            if (s >= MAXCONNS) {
+                close(s); // FIXME: send ICMP dest unreach
+            }
+            connections[s].src_ip = src.sin_addr.s_addr;
+            connections[s].src_port = src.sin_port;
+            connections[s].ttl = 60;
+        } else {
+            fprintf(stderr, "Old connection: %s:%d ->",inet_ntoa(src.sin_addr), ntohs(src.sin_port));
+            fprintf(stderr, "%s:%d. Associated socket", inet_ntoa(dst.sin_addr), ntohs(dst.sin_port));
+            fprintf(stderr, " is %d\n", s);
+        }
+        
+        sendto(s, data, ret, 0, (struct sockaddr*)&dst, sizeof(dst));
         
         // Mirror back
         send_udp_packet_to_tun(
