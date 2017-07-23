@@ -33,7 +33,7 @@ uint16_t ip_id=1;
 char buf[4096];
 char buf_reply[4096];
 
-#define MAXCONNS 1024
+#define MAXCONNS 8192
 int TTL = 60;
 #define SCAN_INTERVAL 5
 
@@ -45,13 +45,20 @@ struct connection {
 
 struct connection connections[MAXCONNS] = {{0,0,0}};
 
+// find_connection accelerator
+int pseudomap[256] = {0};
 
 static int find_connection(struct sockaddr_in c) {
-    // TODO: index
+    uint8_t psmi = (c.sin_port >> 8) ^ (c.sin_port & 0xFF);
+    int i = pseudomap[psmi];
+    if (connections[i].src_ip  == c.sin_addr.s_addr && 
+        connections[i].src_port == c.sin_port) {
+            return i;
+    }
     
-    int i;
     for (i=0; i<MAXCONNS; ++i) {
         if (connections[i].src_ip  == c.sin_addr.s_addr && connections[i].src_port == c.sin_port) {
+            pseudomap[psmi] = i;
             return i;
         }
     }
@@ -64,7 +71,7 @@ static int expire_connections() {
         struct connection *c = connections+i;
         if (!c->src_ip) continue;
         if (c->ttl < SCAN_INTERVAL) {
-            fprintf(stderr, "Expired connection from %s:%d\n",inet_ntoa(*(struct in_addr*)&c->src_ip), ntohs(c->src_port));
+            fprintf(stderr, "Expired connection from %s:%d. Closing socket %d\n",inet_ntoa(*(struct in_addr*)&c->src_ip), ntohs(c->src_port), i);
             memset(&connections[i], 0, sizeof(connections[i]));
             close(i);
         } else {
@@ -79,6 +86,7 @@ int main(int argc, char* argv[]) {
         printf("Usage: udpnat /dev/net/tun ifname expire_seconds\n");
         printf("  If creates a TUN device which does UDP-only IPv4 NAT\n");
         printf("  Mind /proc/sys/net/ipv4/conf/*/rp_filter\n");
+        printf("  Also mind ulmit -n\n");
         return 1;
     }
     
@@ -142,10 +150,11 @@ int main(int argc, char* argv[]) {
                 
                 int s = find_connection(src);
                 if (s == -1) {
-                    fprintf(stderr, "New connection: %s:%d ->",inet_ntoa(src.sin_addr), ntohs(src.sin_port));
+                    fprintf(stderr, "New connection: %s:%d -> ",inet_ntoa(src.sin_addr), ntohs(src.sin_port));
                     fprintf(stderr, "%s:%d. Created socket ", inet_ntoa(dst.sin_addr), ntohs(dst.sin_port));
                     s = socket(AF_INET, SOCK_DGRAM, 0);
                     
+                    if (s == -1) continue; // FIXME: send ICMP dest unreach
                     // Optional bind to port
                     struct sockaddr_in sbind;
                     memset(&sbind, 0, sizeof(sbind));
@@ -155,7 +164,6 @@ int main(int argc, char* argv[]) {
                     bind(s, (struct sockaddr*)&sbind, sizeof(sbind));
                     
                     fprintf(stderr, "%d\n", s);
-                    if (s == -1) continue; // FIXME: send ICMP dest unreach
                     if (s >= MAXCONNS) {
                         close(s); // FIXME: send ICMP dest unreach
                     }
@@ -165,8 +173,11 @@ int main(int argc, char* argv[]) {
                     fcntl(s, F_SETSIG, SIGRTMIN);
                     fcntl(s, F_SETOWN, getpid());
                     fcntl(s, F_SETFL, O_ASYNC|O_RDWR|O_NONBLOCK);
+                    
+                    uint8_t psmi = (src.sin_port >> 8) ^ (src.sin_port & 0xFF);
+                    pseudomap[psmi] = s;
                 } else {
-                    //printf(stderr, "Old connection: %s:%d ->",inet_ntoa(src.sin_addr), ntohs(src.sin_port));
+                    //printf(stderr, "Old connection: %s:%d -> ",inet_ntoa(src.sin_addr), ntohs(src.sin_port));
                     //fprintf(stderr, "%s:%d. Associated socket", inet_ntoa(dst.sin_addr), ntohs(dst.sin_port));
                     //fprintf(stderr, " is %d\n", s);
                     connections[s].ttl = TTL;
