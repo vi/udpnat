@@ -1,11 +1,17 @@
 #ifndef ROBINHOOD_HASH_H
 #define ROBINHOOD_HASH_H
 
+// Flexible C macros implementation of fixed size array-based Robin Hood hash table with backward-shift deletion.
+// Implemented by Vitaly "_Vi" Shukela in 2017. License = MIT or Apache 2.0.
+
+// Don't shrink this hash table by sequentially iterating it and inserting elements into a smaller table
+
 // "X macro" pattern is expected to be for this parameters:
 //  "x" part is variable, substitude it with your identifier and specify it later as "tbl"
 
 // #define x_setvalue(index, key, val) is a macro to set value to the table cell
 // #define x_setnil(index) is a macro that marks table entry as empty
+// #define x_swap(index1, index2) is a macro that swaps two entries in the table
 // #define x_nilvalue is a value siganlizing that key is not found
 // #define x_getvalue(index) is a macro to get value of the table cell
 // #define x_getkey(index) is a macro for obtaining key for given index of the table.
@@ -13,9 +19,8 @@
 // #define x_n_elem should point to number of buckets in hash table
 // #define x_getbucket(key) is a macro for obtaining adviced 
 //      index of the table of the given key. Should be in range [1, n_elem[.
-// #define x_overflow is a macro that called when table is full
+// #define x_overflow is a macro that is called when table is full
 // #define x_removefailed(key) is a macro that called when trying to remove nonexisting element
-// #define x_swap(index1, index2) is a macro that swaps two entries in the table
 
 // hash table entry should consist only of key and value and x_setvalue should completely set an entry
 // If you don't need value just use reuse key as value
@@ -32,6 +37,9 @@
        
 #define ROBINHOOD_HASH_SIZE(tbl, assignme) \
        _ROBINHOOD_HASH_SIZE(tbl, assignme)
+       
+#define ROBINHOOD_HASH_CLEAR(tbl) \
+       _ROBINHOOD_HASH_CLEAR(tbl)
 
 // Impl:
        
@@ -150,6 +158,13 @@
     assignme = 0; \
     for(_rh_i=0; _rh_i<tbl##_n_elem; ++_rh_i) { \
         if (!(tbl##_isnil(_rh_i))) assignme+=1; \
+    } \
+}
+
+#define _ROBINHOOD_HASH_CLEAR(tbl) { \
+    size_t _rh_i; \
+    for(_rh_i=0; _rh_i<tbl##_n_elem; ++_rh_i) { \
+        tbl##_setnil(_rh_i) \
     } \
 }
     
