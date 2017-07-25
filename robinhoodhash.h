@@ -2,6 +2,8 @@
 #define ROBINHOOD_HASH_H
 
 // "X macro" pattern is expected to be for this parameters:
+//  "x" part is variable, substitude it with your identifier and specify it later as "tbl"
+
 // #define x_setvalue(index, key, val) is a macro to set value to the table cell
 // #define x_setnil(index) is a macro that marks table entry as empty
 // #define x_nilvalue is a value siganlizing that key is not found
@@ -19,130 +21,135 @@
 // If you don't need value just use reuse key as value
 
 // API:
-#define ROBINHOOD_HASH_SET(key, value) \
-       _ROBINHOOD_HASH_SET(key, value)
+#define ROBINHOOD_HASH_SET(tbl, key, value) \
+       _ROBINHOOD_HASH_SET(tbl, key, value)
        
-#define ROBINHOOD_HASH_GET(key, assignme) \
-       _ROBINHOOD_HASH_GET(key, assignme)
+#define ROBINHOOD_HASH_GET(tbl, key, assignme) \
+       _ROBINHOOD_HASH_GET(tbl, key, assignme)
        
-#define ROBINHOOD_HASH_DEL(key) \
-       _ROBINHOOD_HASH_DEL(key)
+#define ROBINHOOD_HASH_DEL(tbl, key) \
+       _ROBINHOOD_HASH_DEL(tbl, key)
        
-#define ROBINHOOD_HASH_SIZE(assignme) \
-       _ROBINHOOD_HASH_SIZE(assignme)
+#define ROBINHOOD_HASH_SIZE(tbl, assignme) \
+       _ROBINHOOD_HASH_SIZE(tbl, assignme)
 
 // Impl:
        
-#define _ROBINHOOD_HASH_GETKEYTEMP(i) \
-    ((x_n_elem + i - x_getbucket(x_getkey(i)) - 1) % (x_n_elem-1))
+#include <stddef.h> // size_t
 
-#define _ROBINHOOD_HASH_TYPICAL_INIT(key) \
-    int _rh_i = x_getbucket(key); \
-    int _rh_i_orig = _rh_i; \
-    int _rh_temperature = 0;
+#define _ROBINHOOD_HASH_TYPICAL_INIT(key, getbucket) \
+    size_t _rh_i = getbucket(key); \
+    size_t _rh_i_orig = _rh_i; \
+    size_t _rh_temperature = 0;
     
-#define _ROBINHOOD_HASH_TYPICAL_INCREMENT(breakcode) \
+#define _ROBINHOOD_HASH_TYPICAL_INCREMENT(breakcode, n_elem) \
     _rh_temperature += 1; \
     _rh_i += 1; \
-    if (_rh_i>=x_n_elem) _rh_i=1; \
+    if (_rh_i>=n_elem) _rh_i=1; \
     if (_rh_i == _rh_i_orig) { \
         breakcode \
         break; \
     }
 
-#define _ROBINHOOD_HASH_DEBUGPRINT { \
-    int _rh_i; \
+#define _ROBINHOOD_HASH_DEBUGPRINT(tbl) { \
+    size_t _rh_i; \
     printf("RBHDP: "); \
-    for(_rh_i=1; _rh_i<x_n_elem; ++_rh_i) { \
+    for(_rh_i=1; _rh_i < tbl##_n_elem; ++_rh_i) { \
         printf("%02d:",_rh_i); \
-        if (x_isnil(_rh_i)) { \
+        if (tbl##_isnil(_rh_i)) { \
             printf("___+__ "); \
         } else { \
-            printf("%03u+%02d ", x_getkey(_rh_i), _ROBINHOOD_HASH_GETKEYTEMP(_rh_i)); \
+            printf("%03u+%02d ", tbl##_getkey(_rh_i), tbl##_getbucket(tbl##_getkey(i))); \
         } \
     } \
     printf("\n"); \
 }
 
-#define _ROBINHOOD_HASH_SET(key, value)  { \
-    _ROBINHOOD_HASH_TYPICAL_INIT(key) \
-    x_setvalue(0, key, value); \
+#define _ROBINHOOD_HASH_SET(tbl, key, value)  { \
+    _ROBINHOOD_HASH_TYPICAL_INIT(key, tbl##_getbucket) \
+    tbl##_setvalue(0, key, value); \
     int _rh_check_for_match = 1; \
     for(;;) { \
-        if (x_isnil(_rh_i)) { \
-            x_setvalue(_rh_i, x_getkey(0), x_getvalue(0)); \
+        if (tbl##_isnil(_rh_i)) { \
+            tbl##_setvalue(_rh_i, tbl##_getkey(0), tbl##_getvalue(0)); \
             break; \
         } else { \
-            if (_rh_check_for_match && x_getkey(_rh_i) == key) { \
-                x_setvalue(_rh_i, key, value); \
+            if (_rh_check_for_match && tbl##_getkey(_rh_i) == key) { \
+                tbl##_setvalue(_rh_i, key, value); \
                 break; \
             } \
-            int _rh_i_temp = _ROBINHOOD_HASH_GETKEYTEMP(_rh_i); \
+            size_t _rh_i_want = tbl##_getbucket(tbl##_getkey(_rh_i)); \
+            size_t _rh_i_temp; \
+            if (_rh_i_want <= _rh_i) { \
+                _rh_i_temp = _rh_i - _rh_i_want; \
+            } else  { \
+                _rh_i_temp = tbl##_n_elem - _rh_i_want + _rh_i - 1; \
+            } \
             if (_rh_i_temp < _rh_temperature) { \
                 /* Rob the rich, give the poor */ \
-                x_swap(0, _rh_i); \
+                tbl##_swap(0, _rh_i); \
                 _rh_temperature = _rh_i_temp; \
                 _rh_check_for_match = 0; \
             } \
-            _ROBINHOOD_HASH_TYPICAL_INCREMENT(x_overflow) \
+            _ROBINHOOD_HASH_TYPICAL_INCREMENT(tbl##_overflow, tbl##_n_elem) \
         } \
     } \
 }
     
-#define _ROBINHOOD_HASH_GET(key, assignme) { \
-    _ROBINHOOD_HASH_TYPICAL_INIT(key) \
+#define _ROBINHOOD_HASH_GET(tbl, key, assignme) { \
+    _ROBINHOOD_HASH_TYPICAL_INIT(key, tbl##_getbucket) \
     for(;;) { \
-        if (x_isnil(_rh_i)) { \
-            assignme = x_nilvalue; \
+        if (tbl##_isnil(_rh_i)) { \
+            assignme = tbl##_nilvalue; \
             break; \
         } else { \
-            if (x_getkey(_rh_i) == key) { \
-                assignme = x_getvalue(_rh_i); \
+            if (tbl##_getkey(_rh_i) == key) { \
+                assignme = tbl##_getvalue(_rh_i); \
                 break; \
             } \
-            _ROBINHOOD_HASH_TYPICAL_INCREMENT(assignme = x_nilvalue;) \
+            _ROBINHOOD_HASH_TYPICAL_INCREMENT({assignme = tbl##_nilvalue;}, tbl##_n_elem) \
         } \
     } \
 }
 
-#define _ROBINHOOD_HASH_DEL(key) { \
-    _ROBINHOOD_HASH_TYPICAL_INIT(key) \
+#define _ROBINHOOD_HASH_DEL(tbl, key) { \
+    _ROBINHOOD_HASH_TYPICAL_INIT(key, tbl##_getbucket) \
     int _ri_needbackshift = 0; \
     for(;;) { \
-        if (x_isnil(_rh_i)) { \
-            x_removefailed(key); \
+        if (tbl##_isnil(_rh_i)) { \
+            tbl##_removefailed(key); \
             break; \
         } else { \
-            if (x_getkey(_rh_i) == key) { \
-                x_setnil(_rh_i); \
+            if (tbl##_getkey(_rh_i) == key) { \
+                tbl##_setnil(_rh_i); \
                 _ri_needbackshift = 1; \
                 break; \
             } \
-            _ROBINHOOD_HASH_TYPICAL_INCREMENT(x_removefailed(key)) \
+            _ROBINHOOD_HASH_TYPICAL_INCREMENT(tbl##_removefailed(key), tbl##_n_elem) \
         } \
     } \
     /* Backshift */ \
     if(_ri_needbackshift)\
     for(;;) { \
-        int _rh_nexti = _rh_i + 1; \
-        if (_rh_nexti >= x_n_elem) _rh_nexti=1; \
-        if (x_isnil(_rh_nexti)) { \
+        size_t _rh_nexti = _rh_i + 1; \
+        if (_rh_nexti >= tbl##_n_elem) _rh_nexti=1; \
+        if (tbl##_isnil(_rh_nexti)) { \
             break; \
         } else \
-        if (x_getbucket(x_getkey(_rh_nexti)) == _rh_nexti) { \
+        if (tbl##_getbucket(tbl##_getkey(_rh_nexti)) == _rh_nexti) { \
             break; \
         } else { \
-            x_swap(_rh_nexti, _rh_i); \
+            tbl##_swap(_rh_nexti, _rh_i); \
         } \
         _rh_i = _rh_nexti; \
     } \
 }
     
-#define _ROBINHOOD_HASH_SIZE(assignme) { \
-    int _rh_i; \
+#define _ROBINHOOD_HASH_SIZE(tbl, assignme) { \
+    size_t _rh_i; \
     assignme = 0; \
-    for(_rh_i=0; _rh_i<x_n_elem; ++_rh_i) { \
-        if (!(x_isnil(_rh_i))) assignme+=1; \
+    for(_rh_i=0; _rh_i<tbl##_n_elem; ++_rh_i) { \
+        if (!(tbl##_isnil(_rh_i))) assignme+=1; \
     } \
 }
     

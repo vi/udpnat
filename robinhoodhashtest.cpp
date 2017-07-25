@@ -12,17 +12,17 @@
 
 uint32_t hashtable[TS] = {0};
 
-#define x_setvalue(index, key, val) hashtable[index] = val;
-#define x_setnil(index) hashtable[index] = 0;
-#define x_nilvalue 0
-#define x_getvalue(index) hashtable[index]
-#define x_getkey(index) hashtable[index]
-#define x_isnil(index) (hashtable[index]==0)
-#define x_n_elem TS
-#define x_getbucket(key) (int)((key-1)%(TS-1) + 1)
-#define x_overflow printf("\nX HT full!\n");
-#define x_removefailed(key) //printf("\nX Remove failed %u!\n", key);
-#define x_swap(index1, index2) { \
+#define mytable_setvalue(index, key, val) hashtable[index] = val;
+#define mytable_setnil(index) hashtable[index] = 0;
+#define mytable_nilvalue 0
+#define mytable_getvalue(index) hashtable[index]
+#define mytable_getkey(index) hashtable[index]
+#define mytable_isnil(index) (hashtable[index]==0)
+#define mytable_n_elem TS
+#define mytable_getbucket(key) (size_t)((key-1)%(TS-1) + 1)
+#define mytable_overflow printf("\nX HT full!\n");
+#define mytable_removefailed(key) //printf("\nX Remove failed %u!\n", key);
+#define mytable_swap(index1, index2) { \
     uint32_t tmp = hashtable[index1]; \
     hashtable[index1] = hashtable[index2]; \
     hashtable[index2] = tmp; \
@@ -44,15 +44,15 @@ int main() {
             if (theset.size() >= TS-1) continue;
             
             uint32_t assgn = 0xFFFF;
-            ROBINHOOD_HASH_GET(val, assgn);
+            ROBINHOOD_HASH_GET(mytable, val, assgn);
             if (assgn != (theset.count(val) ? val : 0)) {
                 printf("\nX Before insert element: %u\n", assgn);
             }
             // set
             printf(".");
-            ROBINHOOD_HASH_SET(val, val);
+            ROBINHOOD_HASH_SET(mytable, val, val);
             
-            ROBINHOOD_HASH_GET(val, assgn);
+            ROBINHOOD_HASH_GET(mytable, val, assgn);
             if (assgn != val) {
                 printf("\nX After insert element: %u instead of %u\n", assgn, val);
             }
@@ -63,16 +63,16 @@ int main() {
             // del
             //if (theset.count(val) == 0) continue;  
             uint32_t assgn = 0xFFFF;
-            ROBINHOOD_HASH_GET(val, assgn);
+            ROBINHOOD_HASH_GET(mytable, val, assgn);
             if (assgn != (theset.count(val) ? val : 0)) {
                 printf("\nX Before removal element: %u instead of %u\n", assgn, val);
             }
         
             if (theset.count(val)) printf("-");
-            ROBINHOOD_HASH_DEL(val);
+            ROBINHOOD_HASH_DEL(mytable, val);
             theset.erase(val);
             
-            ROBINHOOD_HASH_GET(val, assgn);
+            ROBINHOOD_HASH_GET(mytable, val, assgn);
             if (assgn != 0) {
                 printf("\nX After removal element: %u\n", assgn);
             }
@@ -85,7 +85,7 @@ int main() {
             // check entire table for consistency
             for(uint32_t i : theset) {
                 uint32_t assgn = 44444;
-                ROBINHOOD_HASH_GET(i, assgn);
+                ROBINHOOD_HASH_GET(mytable, i, assgn);
                 
                 if (assgn == i) {
                     // OK
@@ -100,7 +100,7 @@ int main() {
             for(uint32_t i = 1; i<TS; ++i) {
                 if (theset.count(i) > 0) continue;
                 uint32_t assgn;
-                ROBINHOOD_HASH_GET(i, assgn);
+                ROBINHOOD_HASH_GET(mytable, i, assgn);
                 if (assgn == 0) {
                     // OK
                 } else {
