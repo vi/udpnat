@@ -15,6 +15,7 @@
 // #define x_nilvalue is a value siganlizing that key is not found
 // #define x_getvalue(index) is a macro to get value of the table cell
 // #define x_getkey(index) is a macro for obtaining key for given index of the table.
+// #define x_keysequal(key1,key2) is a macro that should return true when keys are equal
 // #define x_isnil(index) is a macro that checks if table entry is empty
 // #define x_n_elem should point to number of buckets in hash table
 // #define x_getbucket(key) is a macro for obtaining adviced 
@@ -82,7 +83,7 @@
             tbl##_setvalue(_rh_i, tbl##_getkey(0), tbl##_getvalue(0)); \
             break; \
         } else { \
-            if (_rh_check_for_match && tbl##_getkey(_rh_i) == key) { \
+            if (_rh_check_for_match && (tbl##_keysequal(tbl##_getkey(_rh_i),key))) { \
                 tbl##_setvalue(_rh_i, key, value); \
                 break; \
             } \
@@ -99,7 +100,7 @@
                 _rh_temperature = _rh_i_temp; \
                 _rh_check_for_match = 0; \
             } \
-            _ROBINHOOD_HASH_TYPICAL_INCREMENT(tbl##_overflow, tbl##_n_elem) \
+            _ROBINHOOD_HASH_TYPICAL_INCREMENT({tbl##_overflow;}, tbl##_n_elem) \
         } \
     } \
 }
@@ -111,7 +112,7 @@
             assignme = tbl##_nilvalue; \
             break; \
         } else { \
-            if (tbl##_getkey(_rh_i) == key) { \
+            if (tbl##_keysequal(tbl##_getkey(_rh_i),key)) { \
                 assignme = tbl##_getvalue(_rh_i); \
                 break; \
             } \
@@ -128,12 +129,12 @@
             tbl##_removefailed(key); \
             break; \
         } else { \
-            if (tbl##_getkey(_rh_i) == key) { \
+            if (tbl##_keysequal(tbl##_getkey(_rh_i),key)) { \
                 tbl##_setnil(_rh_i); \
                 _ri_needbackshift = 1; \
                 break; \
             } \
-            _ROBINHOOD_HASH_TYPICAL_INCREMENT(tbl##_removefailed(key), tbl##_n_elem) \
+            _ROBINHOOD_HASH_TYPICAL_INCREMENT({tbl##_removefailed(key);}, tbl##_n_elem) \
         } \
     } \
     /* Backshift */ \

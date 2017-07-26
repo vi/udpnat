@@ -17,6 +17,7 @@ uint32_t hashtable[TS] = {0};
 #define mytable_nilvalue 0
 #define mytable_getvalue(index) hashtable[index]
 #define mytable_getkey(index) hashtable[index]
+#define mytable_keysequal(key1, key2) key1 == key2
 #define mytable_isnil(index) (hashtable[index]==0)
 #define mytable_n_elem TS
 #define mytable_getbucket(key) (size_t)((key-1)%(TS-1) + 1)

@@ -20,6 +20,7 @@ struct entry hshtable [100];
 #define qqq_nilvalue        0
 #define qqq_getvalue(index) hshtable[index].value
 #define qqq_getkey(index)   hshtable[index].key
+#define qqq_keysequal(key1, key2) key1 == key2
 #define qqq_isnil(index)    hshtable[index].key == -1
 #define qqq_n_elem          100
 #define qqq_getbucket(key)  key%99 + 1
