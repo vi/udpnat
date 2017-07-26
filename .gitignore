@@ -1,3 +1,6 @@
 p
 *.o
 udpnat
+robinhoodhashexample
+robinhoodhashtest
+udpnat_static_x86_64
