@@ -27,6 +27,7 @@
 #include <signal.h>
 
 #include "tunudp.h"
+#include "robinhoodhash.h"
 
 uint16_t ip_id=1;
 
@@ -37,41 +38,59 @@ char buf_reply[4096];
 int TTL = 60;
 #define SCAN_INTERVAL 5
 
+struct ipport {
+    uint32_t ip;
+    uint16_t port;
+};
+
 struct connection {
-    uint32_t src_ip;
-    uint16_t src_port;
+    struct ipport src;
     uint16_t ttl;
 };
 
-struct connection connections[MAXCONNS] = {{0,0,0}};
+struct connection connections[MAXCONNS] = {{{0,0},0}};
 
-// find_connection accelerator
-int pseudomap[256] = {0};
+// hash map from src.ip:src.port to socket fd
+uint16_t addr2sock[0x10001];
+
+#define addr2sock_setvalue(index, key_, val_) \
+            addr2sock[index]=val_;
+#define addr2sock_setnil(index) \
+            addr2sock[index] = 0xFFFF;
+#define addr2sock_swap(index1, index2) \
+            uint16_t tmp = addr2sock[index1]; \
+            addr2sock[index1] = addr2sock[index2]; \
+            addr2sock[index2] = tmp;
+#define addr2sock_nilvalue        0xFFFF
+#define addr2sock_getvalue(index) addr2sock[index]
+#define addr2sock_getkey(index)   connections[addr2sock[index]].src
+#define addr2sock_keysequal(key1, key2) (key1.ip == key2.ip && key1.port == key2.port)
+#define addr2sock_isnil(index)    addr2sock[index]==0xFFFF
+#define addr2sock_n_elem          0x10001
+#define addr2sock_getbucket(key)  ((ntohl(key.ip)&0xFFFF) ^ key.port)+1
+#define addr2sock_overflow        abort()
+#define addr2sock_removefailed(key)  abort()
+
 
 static int find_connection(struct sockaddr_in c) {
-    uint8_t psmi = (c.sin_port >> 8) ^ (c.sin_port & 0xFF);
-    int i = pseudomap[psmi];
-    if (connections[i].src_ip  == c.sin_addr.s_addr && 
-        connections[i].src_port == c.sin_port) {
-            return i;
-    }
+    struct ipport key = { c.sin_addr.s_addr, c.sin_port };
+    uint16_t val;
     
-    for (i=0; i<MAXCONNS; ++i) {
-        if (connections[i].src_ip  == c.sin_addr.s_addr && connections[i].src_port == c.sin_port) {
-            pseudomap[psmi] = i;
-            return i;
-        }
-    }
-    return -1;
+    ROBINHOOD_HASH_GET(addr2sock, key, val);
+    if (val == 0xFFFF) return -1;
+    
+    return val;
 }
 
 static int expire_connections() {
     int i;
     for (i=0; i<MAXCONNS; ++i) {
         struct connection *c = connections+i;
-        if (!c->src_ip) continue;
+        if (!c->src.ip) continue;
         if (c->ttl < SCAN_INTERVAL) {
-            fprintf(stderr, "Expired connection from %s:%d. Closing socket %d\n",inet_ntoa(*(struct in_addr*)&c->src_ip), ntohs(c->src_port), i);
+            fprintf(stderr, "Expired connection from %s:%d. Closing socket %d\n",inet_ntoa(*(struct in_addr*)&c->src.ip), ntohs(c->src.port), i);
+            
+            ROBINHOOD_HASH_DEL(addr2sock, c->src);
             memset(&connections[i], 0, sizeof(connections[i]));
             close(i);
         } else {
@@ -126,15 +145,14 @@ static void serve_tundev(int tundev) {
             if (s >= MAXCONNS) {
                 close(s); // FIXME: send ICMP dest unreach
             }
-            connections[s].src_ip = src.sin_addr.s_addr;
-            connections[s].src_port = src.sin_port;
+            connections[s].src.ip = src.sin_addr.s_addr;
+            connections[s].src.port = src.sin_port;
             connections[s].ttl = TTL;
             fcntl(s, F_SETSIG, SIGRTMIN);
             fcntl(s, F_SETOWN, getpid());
             fcntl(s, F_SETFL, O_ASYNC|O_RDWR|O_NONBLOCK);
             
-            uint8_t psmi = (src.sin_port >> 8) ^ (src.sin_port & 0xFF);
-            pseudomap[psmi] = s;
+            ROBINHOOD_HASH_SET(addr2sock, connections[s].src, s);
         } else {
             //printf(stderr, "Old connection: %s:%d -> ",inet_ntoa(src.sin_addr), ntohs(src.sin_port));
             //fprintf(stderr, "%s:%d. Associated socket", inet_ntoa(dst.sin_addr), ntohs(dst.sin_port));
@@ -159,8 +177,8 @@ static void serve_sock(int fd, int tundev) {
     struct sockaddr_in dst;
     memset(&dst, 0, sizeof(dst));
     dst.sin_family = AF_INET;
-    dst.sin_addr.s_addr = c->src_ip;
-    dst.sin_port = c->src_port;
+    dst.sin_addr.s_addr = c->src.ip;
+    dst.sin_port = c->src.port;
     
     for(;;) {
         struct sockaddr_in src;
@@ -215,6 +233,8 @@ int main(int argc, char* argv[]) {
     
     int ret;
     
+    ROBINHOOD_HASH_CLEAR(addr2sock);
+    
     for(;;) {
         siginfo_t si;
         ret = sigwaitinfo(&sigs, &si);
@@ -229,7 +249,7 @@ int main(int argc, char* argv[]) {
             serve_tundev(tundev);
             int i;
             for(i=0; i<MAXCONNS; ++i) {
-                if (connections[i].src_ip != 0) {
+                if (connections[i].src.ip != 0) {
                     serve_sock(i, tundev);
                 }
             }
