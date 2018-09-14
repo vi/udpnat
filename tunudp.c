@@ -23,31 +23,56 @@
 int tunudp_debug = 0;
 
 // http://www.microhowto.info/howto/calculate_an_internet_protocol_checksum_in_c.html#idp22656
-static uint16_t ip_checksum(void* vdata,size_t length) {
+static uint16_t ip_checksum(void* vdata1,size_t length1, void* vdata2, size_t length2) {
     // Cast the data pointer to one that can be indexed.
-    char* data=(char*)vdata;
+    char* data1=(char*)vdata1;
+    char* data2=(char*)vdata2;
 
     // Initialise the accumulator.
     uint32_t acc=0xffff;
 
-    // Handle complete 16-bit blocks.
     size_t i;
-    for (i=0;i+1<length;i+=2) {
-        uint16_t word;
-        memcpy(&word,data+i,2);
-        acc+=ntohs(word);
-        if (acc>0xffff) {
-            acc-=0xffff;
+    if (vdata1) {
+        // Handle complete 16-bit blocks.
+        for (i=0;i+1<length1;i+=2) {
+            uint16_t word;
+            memcpy(&word,data1+i,2);
+            acc+=ntohs(word);
+            if (acc>0xffff) {
+                acc-=0xffff;
+            }
+        }
+    
+        // Handle any partial block at the end of the data.
+        if (length1&1) {
+            uint16_t word=0;
+            memcpy(&word,data1+length1-1,1);
+            acc+=ntohs(word);
+            if (acc>0xffff) {
+                acc-=0xffff;
+            }
         }
     }
 
-    // Handle any partial block at the end of the data.
-    if (length&1) {
-        uint16_t word=0;
-        memcpy(&word,data+length-1,1);
-        acc+=ntohs(word);
-        if (acc>0xffff) {
-            acc-=0xffff;
+    if (vdata2) {
+        // Handle complete 16-bit blocks.
+        for (i=0;i+1<length2;i+=2) {
+            uint16_t word;
+            memcpy(&word,data2+i,2);
+            acc+=ntohs(word);
+            if (acc>0xffff) {
+                acc-=0xffff;
+            }
+        }
+    
+        // Handle any partial block at the end of the data.
+        if (length2&1) {
+            uint16_t word=0;
+            memcpy(&word,data2+length2-1,1);
+            acc+=ntohs(word);
+            if (acc>0xffff) {
+                acc-=0xffff;
+            }
         }
     }
 
@@ -148,6 +173,34 @@ int receive_udp_packet_from_tun(
         errno=EOPNOTSUPP;
         return -1;
     }
+    size_t ll = ntohs(hu->uh_ulen) - sizeof(hu);
+    
+    if (ll > ret - dataoffset) {
+        errno=EBADMSG;
+        return -1;
+    }
+    
+    {
+        uint8_t pseudoheader[12];
+        memcpy(pseudoheader+0, &hi->ip_src, 4);
+        memcpy(pseudoheader+4, &hi->ip_dst, 4);
+        *(uint16_t*)(pseudoheader+8 ) = htons(IPPROTO_UDP);
+        *(uint16_t*)(pseudoheader+10) = htons(ll + sizeof(hu));
+        
+        uint16_t savesum = hu->uh_sum;
+        hu->uh_sum = 0;
+        
+        uint16_t calcsum = ip_checksum(pseudoheader, 12, hu, sizeof(hu) + ll);
+        
+        if (tunudp_debug) {
+            fprintf(stderr, "UDP checksum: %04X calculated: %04X len %d\n",
+                    (int)savesum, (int)calcsum, (int)ll);
+        }
+        if (savesum != calcsum) {
+            errno=EBADMSG;
+            return -1;
+        }
+    }
     
     if (src) {
         memset(src, 0, sizeof(*src));
@@ -163,7 +216,7 @@ int receive_udp_packet_from_tun(
     }
     
     *data = buf + dataoffset;
-    return ret - dataoffset;
+    return ll;
 }
 
 int send_udp_packet_to_tun(
@@ -197,12 +250,24 @@ int send_udp_packet_to_tun(
     hu_r->uh_sport = src->sin_port;
     hu_r->uh_dport = dst->sin_port;
     hu_r->uh_ulen = htons(8+datalen);
-    hu_r->uh_sum = 0; // FIXME
+    hu_r->uh_sum = 0;
+    
     char *data_ = buf_reply + hi_r->ip_hl*4 + sizeof(*hu_r);
     
-    hi_r->ip_sum = ip_checksum(hi_r, 20);
+    hi_r->ip_sum = ip_checksum(hi_r, 20, NULL, 0);
     
     memcpy(data_, data, datalen);
+    
+    {
+        uint8_t pseudoheader[12];
+        memcpy(pseudoheader+0, &hi_r->ip_src, 4);
+        memcpy(pseudoheader+4, &hi_r->ip_dst, 4);
+        *(uint16_t*)(pseudoheader+8 ) = htons(IPPROTO_UDP);
+        *(uint16_t*)(pseudoheader+10) = htons(datalen + sizeof(hu_r));
+
+        uint16_t calcsum = ip_checksum(pseudoheader, 12, hu_r, sizeof(hu_r) + datalen);
+        hu_r->uh_sum = calcsum;
+    }
     
     return write(tundev, buf_reply, reqsize);
 }
@@ -229,7 +294,7 @@ static void send_icmp_packet_to_tun(
     hi_r->ip_sum = htons(0);
     hi_r->ip_src = orighdr->ip_dst;
     hi_r->ip_dst = orighdr->ip_src;
-    hi_r->ip_sum = ip_checksum(hi_r, 20);
+    hi_r->ip_sum = ip_checksum(hi_r, 20, NULL, 0);
     
     buf_reply[20] = type;
     buf_reply[21] = code;
@@ -240,7 +305,7 @@ static void send_icmp_packet_to_tun(
     buf_reply[26] = 0; // unused
     buf_reply[27] = 0; // unused
     memcpy(buf_reply+28, orighdr, 20+8);
-    *(uint16_t*)&buf_reply[22] = ip_checksum(buf_reply+20, 36);
+    *(uint16_t*)&buf_reply[22] = ip_checksum(buf_reply+20, 36, NULL, 0);
     
     write(tundev, buf_reply, 20+36);
 }
