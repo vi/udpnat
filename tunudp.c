@@ -197,7 +197,7 @@ int send_udp_packet_to_tun(
     hu_r->uh_sport = src->sin_port;
     hu_r->uh_dport = dst->sin_port;
     hu_r->uh_ulen = htons(8+datalen);
-    hu_r->uh_sum = 0;
+    hu_r->uh_sum = 0; // FIXME
     char *data_ = buf_reply + hi_r->ip_hl*4 + sizeof(*hu_r);
     
     hi_r->ip_sum = ip_checksum(hi_r, 20);

@@ -38,7 +38,8 @@ Limitations:
 * Limited error handling
 * Limited scalability (O_ASYNC-based event loop) - use multipath (nexthop) routing if you want more than 5000 connections. 1 routed packet = 4 syscalls.
 * Limited configurability
-* Security issues if naively (for example, according to the above example) used
+* Security issues if naively used (for example, the snippet above is insecure)
+* No UDP checksums
 
 There is x86_64 static musl-based version on Github releases.
 
